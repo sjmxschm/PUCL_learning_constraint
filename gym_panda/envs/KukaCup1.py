@@ -19,6 +19,25 @@ class KukaCup1(gym.Env):
     may enter it so that PUCL can collect infeasible samples. Cost ignores z and
     action. Observations are [position, goal - position, last displacement].
     Successful episode return is exactly minus the accumulated path length.
+
+    Spaces:
+        action:      Box(3,) in [-1, 1]. Scaled by ``step_size`` to give the Cartesian
+                     displacement (x, y, z) in metres applied at each step.
+        observation: Box(9,) = [position (3), goal - position (3), last displacement (3)].
+
+    Reward (see ``step``):
+        -(distance moved this step), minus ``failure_penalty`` on the step where the
+        episode times out without reaching the goal.
+
+    Cost (see ``true_cost_function``):
+        1 while the end effector's (x, y) lies inside the cylinder, else 0. This is
+        returned in ``info["cost"]`` and is *not* part of the reward.
+
+    Episode end:
+        Terminates when the goal is reached (within ``goal_tolerance``) or after
+        ``max_steps`` steps (reported as ``TimeLimit.truncated``).
+
+    All coordinates are metres in the ``iiwa7_link_0`` frame.
     """
 
     metadata = {"render.modes": ["rgb_array"]}
@@ -26,6 +45,28 @@ class KukaCup1(gym.Env):
     def __init__(self, config_path=None, obstacle_center=None, obstacle_radius=None,
                  goal=None, start=None, workspace_low=None, workspace_high=None,
                  step_size=None, goal_tolerance=None, max_steps=None):
+        """Build the environment from a JSON config, with per-argument overrides.
+
+        Every argument left as ``None`` is read from the JSON config, then falls back
+        to a built-in default. The config path is ``config_path``, else the
+        ``KUKACUP1_CONFIG`` environment variable, else ``DEFAULT_CONFIG``.
+
+        Args:
+            config_path: Path to a task_config.json file.
+            obstacle_center: [x, y] centre of the cylinder. Required (here or in the config).
+            obstacle_radius: Cylinder radius. Required (here or in the config).
+            goal: [x, y, z] goal. If given, replaces the configured task list.
+            start: [x, y, z] start. If given, replaces the configured task list.
+            workspace_low: [x, y, z] lower bound of the reachable box (default [0.3, -0.4, 0.1]).
+            workspace_high: [x, y, z] upper bound of the reachable box (default [0.9, 0.3, 0.6]).
+            step_size: Metres moved per step by a unit action (default 0.008).
+            goal_tolerance: Distance to the goal that counts as reached (default 0.01).
+            max_steps: Episode time limit, at most 200 (default 200).
+
+        Raises:
+            ValueError: If the obstacle is missing or any value is non-finite,
+                mis-shaped, non-positive, or outside the allowed range.
+        """
         path = Path(config_path or os.environ.get('KUKACUP1_CONFIG') or DEFAULT_CONFIG)
         config = json.loads(path.read_text()) if path.exists() else {}
         self.obstacle_center = np.asarray(
@@ -92,6 +133,7 @@ class KukaCup1(gym.Env):
         self.seed()
 
     def _position(self, value):
+        """Validate ``value`` as a finite [x, y, z] inside the workspace and return a copy."""
         position = np.asarray(value, dtype=np.float64)
         if position.shape != (3,) or not np.isfinite(position).all():
             raise ValueError("positions must be finite [x, y, z] vectors")
@@ -100,6 +142,7 @@ class KukaCup1(gym.Env):
         return position.copy()
 
     def seed(self, seed=None):
+        """Seed the environment's random number generator and return ``[seed]``."""
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
@@ -113,6 +156,18 @@ class KukaCup1(gym.Env):
         return position
 
     def set_starting_point(self, starting_point, ending_point=None):
+        """Override the start/goal pairs that ``reset`` cycles through (e.g. with expert data).
+
+        Args:
+            starting_point: ``None`` to restore the configured tasks, otherwise an array
+                of shape (N, 3) or (N, 9). Only the first three columns (position) are
+                used as the start. For (N, 9) rows, columns 3:6 are goal - position.
+            ending_point: Optional (N, 3) goals, one per start. If omitted, goals come
+                from the (N, 9) rows, or default to the default goal for (N, 3) rows.
+
+        Starts and goals within 5 mm of the workspace are snapped onto it, then validated.
+        Resets the task index so the next ``reset`` uses the first pair.
+        """
         if starting_point is None:
             self.starting_point_candidates = self.ending_point_candidates = None
         else:
@@ -132,6 +187,13 @@ class KukaCup1(gym.Env):
         self.task_config_idx = 0
 
     def reset(self, **kwargs):
+        """Start a new episode and return the initial observation.
+
+        Start/goal pairs are taken in order (cycling) from the ``set_starting_point``
+        candidates if set, else from the configured tasks, else the single default
+        pair. Resets the step count, path length and the cost counter (which starts
+        at 1 if the start is already inside the cylinder).
+        """
         if self.starting_point_candidates is None:
             if self.default_tasks:
                 start, goal = self.default_tasks[self.task_config_idx % len(self.default_tasks)]
@@ -153,10 +215,36 @@ class KukaCup1(gym.Env):
         return self.observation.copy()
 
     def _observation(self, displacement):
+        """Return [position, goal - position, last displacement] as a float32 (9,) vector."""
         return np.concatenate([self.current_state, self.ending_point - self.current_state,
                                displacement]).astype(np.float32)
 
     def step(self, action):
+        """Move the end effector by one action and return ``(obs, reward, done, info)``.
+
+        The action is clipped to [-1, 1], scaled by ``step_size`` and added to the
+        position, which is then clipped to the workspace. Entering the cylinder is
+        allowed; it only produces cost.
+
+        Reward: ``-distance`` actually moved this step (after workspace clipping), so
+        a successful episode's return is minus its path length. If the step limit is
+        hit without reaching the goal, ``failure_penalty`` is also subtracted. It is
+        larger than any possible path length, so standing still never beats reaching.
+
+        Returns:
+            obs: The new 9-vector observation.
+            reward: As above.
+            done: True once the goal is reached or the step limit is hit.
+            info: ``cost`` (1.0 if inside the cylinder this step), ``is_success``
+                (goal reached with zero total cost), ``goal_reached``, ``path_length``,
+                ``dis_reward`` (= -distance), ``ctl_reward`` (always 0, kept for
+                logging compatibility), ``failure_penalty``, and
+                ``TimeLimit.truncated`` on timeout.
+
+        Raises:
+            RuntimeError: If called before ``reset`` or after the episode ended.
+            ValueError: If ``action`` is not a finite 3-vector.
+        """
         if self.current_state is None or self.terminated:
             raise RuntimeError("call reset() before stepping a new episode")
         action = np.asarray(action, dtype=np.float64)
@@ -185,11 +273,21 @@ class KukaCup1(gym.Env):
         return self.observation.copy(), float(reward), self.terminated, info
 
     def true_cost_function(self, obs, acs=None):
+        """Compute the true cost of a state-action pair.
+
+        Args:
+            obs: Observation(s) whose first two entries are (x, y); any leading batch shape.
+            acs: Unused. Cost depends only on position.
+
+        Returns:
+            float32 array: 1.0 where (x, y) is inside the cylinder (z is ignored), else 0.0.
+        """
         positions = np.asarray(obs)[..., :2]
         return (np.sum((positions - self.obstacle_center) ** 2, axis=-1) <=
                 self.obstacle_radius ** 2).astype(np.float32)
 
     def render(self, mode="rgb_array"):
+        """Return a top-down (x, y) RGB image of the cylinder, goal and end effector."""
         if mode != "rgb_array":
             raise ValueError("only rgb_array rendering is supported")
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -210,4 +308,5 @@ class KukaCup1(gym.Env):
         return np.asarray(canvas.buffer_rgba())[..., :3].copy()
 
     def close(self):
+        """Nothing to release."""
         pass
