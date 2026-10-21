@@ -103,6 +103,15 @@ class KukaCup1(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
+    def _snap_to_workspace(self, value, tolerance=5e-3):
+        """Clip positions that miss the workspace by float/demo noise (<= tolerance metres)."""
+        position = np.asarray(value, dtype=np.float64)
+        if position.shape == (3,) and np.isfinite(position).all():
+            clipped = np.clip(position, self.workspace_low, self.workspace_high)
+            if np.all(np.abs(clipped - position) <= tolerance):
+                return clipped
+        return position
+
     def set_starting_point(self, starting_point, ending_point=None):
         if starting_point is None:
             self.starting_point_candidates = self.ending_point_candidates = None
@@ -110,7 +119,7 @@ class KukaCup1(gym.Env):
             values = np.atleast_2d(np.asarray(starting_point, dtype=np.float64))
             if values.shape[1] not in (3, 9) or not np.isfinite(values).all():
                 raise ValueError("starting points must have shape (N, 3) or (N, 9)")
-            self.starting_point_candidates = np.array([self._position(v[:3]) for v in values])
+            self.starting_point_candidates = np.array([self._position(self._snap_to_workspace(v[:3])) for v in values])
             if ending_point is not None:
                 goals = np.atleast_2d(np.asarray(ending_point, dtype=np.float64))
                 if goals.shape != (len(values), 3):
@@ -119,7 +128,7 @@ class KukaCup1(gym.Env):
                 goals = values[:, :3] + values[:, 3:6]
             else:
                 goals = np.repeat(self.default_goal[None], len(values), axis=0)
-            self.ending_point_candidates = np.array([self._position(v) for v in goals])
+            self.ending_point_candidates = np.array([self._position(self._snap_to_workspace(v)) for v in goals])
         self.task_config_idx = 0
 
     def reset(self, **kwargs):

@@ -633,6 +633,23 @@ def compute_kl(agent_2, observations, actions, agent_1=None):
 # =============================================================================
 # Various
 # =============================================================================
+class _NumpyCompatUnpickler(pickle.Unpickler):
+    """Unpickler that loads pickles written with NumPy 2.x (``numpy._core``) under NumPy 1.x."""
+
+    def find_class(self, module, name):
+        if module == 'numpy._core' or module.startswith('numpy._core.'):
+            try:
+                return super().find_class(module, name)
+            except ModuleNotFoundError:
+                module = module.replace('numpy._core', 'numpy.core', 1)
+        return super().find_class(module, name)
+
+
+def _load_pickle_compat(path):
+    with open(path, 'rb') as f:
+        return _NumpyCompatUnpickler(f).load()
+
+
 def load_expert_data(expert_path, num_rollouts, load_type='EXPERT', selection_seed=None):
     """Select demos with a private RNG, without changing training RNG states.
 
@@ -660,8 +677,7 @@ def load_expert_data(expert_path, num_rollouts, load_type='EXPERT', selection_se
     selected_files = [pkl_files[idx] for idx in selected_indices]
     expert_length = []
     for idx, file_name in enumerate(selected_files):
-        with open(os.path.join(rollouts_dir, file_name), 'rb') as f:
-            data = pickle.load(f)
+        data = _load_pickle_compat(os.path.join(rollouts_dir, file_name))
         if idx == 0:
             expert_obs = data['observations']
             expert_acs = data['actions']
