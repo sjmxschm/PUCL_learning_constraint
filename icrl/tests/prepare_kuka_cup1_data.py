@@ -11,10 +11,11 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 
 def resample_by_arc_length(positions, times, num_points):
-    """Interpolate equally spaced positions while retaining both endpoints."""
+    """Interpolate spatially equally spaced positions while retaining both endpoints."""
     if num_points < 2:
         raise ValueError('num_points must be at least 2')
     arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(positions, axis=0), axis=1))]
@@ -29,8 +30,29 @@ def resample_by_arc_length(positions, times, num_points):
     sampled_times[0], sampled_times[-1] = times[0], times[-1]
     return sampled, sampled_times
 
+def resample_by_time(positions, times,
+                     num_points) -> tuple[np.ndarray, np.ndarray, float]:
+    """Interpolate timewise equally spaced positions while retaining both endpoints."""
+    assert num_points >= 2, "num_point must be at least 2"
+    #TODO: (1) find how many points there are
+    # if len(pos)%num_points = 0, then just select each num-ed point
+    # otherwise: fit a function (or interpolate?) and then sample every times[-1]/num_points seconds
+    # OR: just interpolate everytime
 
-def prepare(dataset_dir=None, num_points=100):
+    # times: (N,), position: (N, d)
+    f = CubicSpline(times, positions)                       # interpolate along axis 0
+    sampled_times = np.linspace(times[0], times[-1], num_points)
+    sampled_positions = f(sampled_times)
+    mean_sampling_time = np.mean(np.diff(sampled_times))
+    eps = 0.01                      # s - selected as estimate, #TODO: move to proper config
+    assert np.var(np.diff(times)) < 1e-8
+    return sampled_positions, sampled_times, mean_sampling_time
+
+def prepare(dataset_dir=None, num_points=100, position_only: bool = False):
+    """
+        position_only: specifies if only a positional constraint should be learned. If so,
+            the trajectories are getting resampled by arc-length. If not, resampled by time.
+    """
     root = Path(dataset_dir) if dataset_dir else Path(__file__).resolve().parents[1] / "expert_data/KukaCup1"
     manifest = json.loads((root / "manifest.json").read_text())
     config_file = root / "task_config.json"
@@ -63,7 +85,10 @@ def prepare(dataset_dir=None, num_points=100):
         positions, times = positions[:stop + 1], times[:stop + 1]
         source_num_positions = len(positions)
         source_path_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
-        positions, times = resample_by_arc_length(positions, times, num_points)
+        if position_only:
+            positions, times = resample_by_arc_length(positions, times, num_points)
+        else:
+            positions, times, sampling_time = resample_by_time(positions, times, num_points)
         displacements = np.diff(positions, axis=0)
         actions = displacements / step_size
         if np.any(np.abs(actions) > 1.0 + 1e-6):
@@ -92,6 +117,9 @@ def prepare(dataset_dir=None, num_points=100):
             "action_definition": "delta_position / step_size; derived, not measured robot command",
             "downsampling": {"method": "uniform_arc_length", "num_positions": num_points},
         }
+        if not position_only:
+            task["sampling_time"] = sampling_time
+            rollout["rewards"] = np.array([-path_length - (times[-1] - times[0])], dtype=np.float64)
         with (rollouts / task["rollout_file"]).open("wb") as stream:
             pickle.dump(rollout, stream, protocol=4)
         tasks.append(task)

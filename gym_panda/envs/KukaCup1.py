@@ -100,6 +100,7 @@ class KukaCup1(gym.Env):
         tasks = config.get("tasks", [])
         fallback = {"start": [0.71, -0.22, 0.26], "goal": [0.45, 0.067, 0.269]}
         default_task = tasks[0] if tasks else fallback
+        self.dt = default_task.get("sampling_time", 0.05)
         self.default_start = self._position(start if start is not None else default_task["start"])
         self.default_goal = self._position(goal if goal is not None else default_task["goal"])
         self.default_tasks = [(self._position(task["start"]), self._position(task["goal"]))
@@ -107,12 +108,15 @@ class KukaCup1(gym.Env):
         self.starting_point_candidates = None
         self.ending_point_candidates = None
         self.task_config_idx = 0
+        self.velocity_gain = 1 # 1/s - constant for gradient steepness #TODO: move to config later
         self.action_space = spaces.Box(-np.ones(3, dtype=np.float32), np.ones(3, dtype=np.float32))
         span = self.workspace_high - self.workspace_low
         self.observation_space = spaces.Box(
             np.concatenate([self.workspace_low, -span, -np.ones(3) * self.step_size]).astype(np.float32),
             np.concatenate([self.workspace_high, span, np.ones(3) * self.step_size]).astype(np.float32),
         )
+        self.time_cost_delta = 0.01 #TODO: provide better estimate for value and then move into a config
+        self.time_cost = 0.0
         # A stationary policy must not beat a successful reaching trajectory.
         # Failure incurs more than the maximum possible episode path length.
         self.failure_penalty = self.max_steps * self.step_size * np.sqrt(3.0) + 1.0
@@ -209,6 +213,7 @@ class KukaCup1(gym.Env):
             self.task_config_idx += 1
         self.steps = 0
         self.path_length = 0.0
+        self.time_cost = 0.0
         self.cost_counter = int(self.true_cost_function(self.current_state, None))
         self.terminated = False
         self.observation = self._observation(np.zeros(3))
@@ -262,7 +267,8 @@ class KukaCup1(gym.Env):
         reached = np.linalg.norm(self.current_state - self.ending_point) <= self.goal_tolerance
         timed_out = self.steps >= self.max_steps and not reached
         self.terminated = bool(reached or timed_out)
-        reward = -distance - (self.failure_penalty if timed_out else 0.0)
+        self.time_cost += self.time_cost_delta
+        reward = -distance - self.time_cost - (self.failure_penalty if timed_out else 0.0) #TODO: add velocity reward
         self.observation = self._observation(displacement)
         info = {"cost": cost, "is_success": bool(reached and self.cost_counter == 0),
                 "goal_reached": bool(reached), "path_length": self.path_length,
@@ -283,8 +289,15 @@ class KukaCup1(gym.Env):
             float32 array: 1.0 where (x, y) is inside the cylinder (z is ignored), else 0.0.
         """
         positions = np.asarray(obs)[..., :2]
-        return (np.sum((positions - self.obstacle_center) ** 2, axis=-1) <=
+        position_reward = (np.sum((positions - self.obstacle_center) ** 2, axis=-1) <=
                 self.obstacle_radius ** 2).astype(np.float32)
+
+        dist_to_border = np.linalg.norm(positions - self.obstacle_center, axis=-1) - self.obstacle_radius
+        # from remote_pdb import RemotePdb
+        # RemotePdb('127.0.0.1', 4444).set_trace()
+
+        speed = np.linalg.norm(obs[...,6:8], axis=-1) / self.dt # only in x- and y- direction
+        return (speed > self.velocity_gain * dist_to_border).astype(np.float32)
 
     def render(self, mode="rgb_array"):
         """Return a top-down (x, y) RGB image of the cylinder, goal and end effector."""
