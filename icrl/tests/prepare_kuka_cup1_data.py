@@ -31,24 +31,35 @@ def resample_by_arc_length(positions, times, num_points):
     return sampled, sampled_times
 
 def resample_by_time(positions, times,
-                     num_points) -> tuple[np.ndarray, np.ndarray, float]:
-    """Interpolate timewise equally spaced positions while retaining both endpoints."""
-    assert num_points >= 2, "num_point must be at least 2"
-    #TODO: (1) find how many points there are
-    # if len(pos)%num_points = 0, then just select each num-ed point
-    # otherwise: fit a function (or interpolate?) and then sample every times[-1]/num_points seconds
-    # OR: just interpolate everytime
+                     fs: int = 200, sample_reduction: int = 8) -> tuple[np.ndarray, np.ndarray, float]:
+    """
+    Interpolate timewise equally spaced positions while retaining both endpoints.
+
+        Args
+        - positions: (N, d) vector of N positions in d dimensions
+        - times: (N,) vector of N time steps
+        - fs: sampling frequency in Hz
+        - sample_reduction: factor of how much the sampling should be reduced
+
+        Outpus:
+        - sampled_positions: (N * fs/sample_reduction, d) vector of N positions in d dimensions
+        - sampled_times: (N * fs/sample_reduction,) vector of N time steps
+        - sample_reduction * ts: resampled sampling time
+    """
+    ts = 1. / fs  # true sampling time
 
     # times: (N,), position: (N, d)
-    f = CubicSpline(times, positions)                       # interpolate along axis 0
-    sampled_times = np.linspace(times[0], times[-1], num_points)
-    sampled_positions = f(sampled_times)
-    mean_sampling_time = np.mean(np.diff(sampled_times))
-    eps = 0.01                      # s - selected as estimate, #TODO: move to proper config
-    assert np.var(np.diff(times)) < 1e-8
-    return sampled_positions, sampled_times, mean_sampling_time
+    idx = np.arange(len(positions) - 1, -1, -sample_reduction)[::-1]   # stride anchored at the last sample
+    sampled_times = times[idx]
+    sampled_positions = positions[idx]
 
-def prepare(dataset_dir=None, num_points=100, position_only: bool = False):
+    step = np.diff(sampled_times)
+    assert np.max(np.abs(step - sample_reduction * ts)) < 0.15 * sample_reduction * ts
+
+    return sampled_positions, sampled_times, sample_reduction*ts
+
+def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
+            time_rate: float = 0.05,):
     """
         position_only: specifies if only a positional constraint should be learned. If so,
             the trajectories are getting resampled by arc-length. If not, resampled by time.
@@ -66,7 +77,8 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False):
         "workspace_high": [0.9, 0.3, 0.6],
         "step_size": 0.008,
         "goal_tolerance": 0.01,
-        "max_steps": 200,
+        "max_steps": 250,
+        "time_rate": time_rate,
     }
     step_size = config["step_size"]
     rollouts = root / "files/EXPERT/rollouts"
@@ -88,7 +100,9 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False):
         if position_only:
             positions, times = resample_by_arc_length(positions, times, num_points)
         else:
-            positions, times, sampling_time = resample_by_time(positions, times, num_points)
+            positions, times, sampling_time = resample_by_time(positions, times)
+            if len(positions) - 1 > config["max_steps"]:
+                raise ValueError(f"{demo}: {len(positions) - 1} transitions exceed max_steps")
         displacements = np.diff(positions, axis=0)
         actions = displacements / step_size
         if np.any(np.abs(actions) > 1.0 + 1e-6):
@@ -119,7 +133,10 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False):
         }
         if not position_only:
             task["sampling_time"] = sampling_time
-            rollout["rewards"] = np.array([-path_length - (times[-1] - times[0])], dtype=np.float64)
+            rollout["rewards"] = np.array([-path_length -
+                                           time_rate*(times[-1] - times[0])], dtype=np.float64)
+            rollout["downsampling"] = {"method": "time_based", "sampling_time": sampling_time},
+
         with (rollouts / task["rollout_file"]).open("wb") as stream:
             pickle.dump(rollout, stream, protocol=4)
         tasks.append(task)

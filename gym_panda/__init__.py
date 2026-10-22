@@ -3,7 +3,7 @@ from gym.envs.registration import register
 register(
     id='KukaCup1-v0',
     entry_point='gym_panda.envs:KukaCup1',
-    max_episode_steps=200,
+    max_episode_steps=250,
 )
 
 register(
