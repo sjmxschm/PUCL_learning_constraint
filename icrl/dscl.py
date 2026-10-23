@@ -13,6 +13,8 @@ import icrl.utils as utils
 from icrl.constraint_net import ConstraintNet, plot_for_PointObs, plot_constraints, evaluate_constraint_accuracy, evaluate_policy_accuracy
 from icrl.true_constraint_net import get_true_cost_function, null_cost
 from icrl.ds_policy import DS_Policy
+from icrl.nominal_planner import Trajectory_Optimizer
+from icrl.plot_velocity import plot_velocity_constraint
 from icrl.goal_reaching_evaluation import evaluate_goal_reaching_policy
 
 def resolve_cn_smoothness_coeff(env_id, coefficient):
@@ -28,7 +30,8 @@ def resolve_select_policy_excerpts(env_id, enabled):
     return enabled
 
 
-def dscl(config):
+def dscl(config,
+         planner: str = "traj_opt"):
     if config.use_wandb:
         global wandb
         import wandb
@@ -39,16 +42,24 @@ def dscl(config):
     # Initialize DS agent and specify the target point
     if config.train_env_id == 'KukaCup1-v0':
         # Each demonstration stores its own target in obs[3:6] = goal - position.
-        nominal_agent = DS_Policy(3, lambda x: 2.0 * x[3:6], stable_modulation_basis=True)
-        if list(config.cn_obs_select_dim) != [0, 1, 2] or list(config.cn_acs_select_dim) != [-1]:
-            raise ValueError('KukaCup1 learns position only: use -cosd 0 1 2 -casd -1.')
+        if planner == 'ds':
+            nominal_agent = DS_Policy(3, lambda x: 2.0 * x[3:6], stable_modulation_basis=True)
+        elif planner == 'traj_opt':
+            nominal_agent = Trajectory_Optimizer(duration_slack=tuple(getattr(config, 'duration_slack', (1.0, 2.5))))
+        else:
+            raise AttributeError('Unknown planner {}'.format(planner))
+        # Observation layout: 0:3 position, 3:6 goal - position, 6:9 last displacement.
+        # Position-only: -cosd 0 1 2. Position + planar velocity: -cosd 0 1 2 6 7.
+        if list(config.cn_obs_select_dim) not in ([0, 1, 2], [0, 1, 2, 6, 7]) or list(config.cn_acs_select_dim) != [-1]:
+            raise ValueError('KukaCup1 learns position (-cosd 0 1 2) or position and velocity '
+                             '(-cosd 0 1 2 6 7); both need -casd -1.')
         if not config.dont_normalize_obs or config.cn_normalize:
             raise ValueError('KukaCup1 DS policy uses physical coordinates: use -dno without -cn.')
         if config.eval_env_id != 'KukaCup1-v0':
             raise ValueError('KukaCup1 training and evaluation must use the same task environment.')
         if not config.dont_normalize_reward or not config.dont_normalize_cost:
             raise ValueError('KukaCup1 path-length comparisons require -dnr -dnc.')
-        if config.ds_modulation_with_refer_point:
+        if config.ds_modulation_with_refer_point and planner == 'ds':
             point = np.asarray(getattr(config, 'ds_reference_point', None), dtype=float)
             if point.shape not in ((2,), (3,)) or not np.isfinite(point).all():
                 raise ValueError('KukaCup1 reference modulation requires --ds_reference_point X Y [Z].')
@@ -132,7 +143,8 @@ def dscl(config):
                                    target_kl_new_old=config.cn_target_kl_new_old,
                                    train_gail_lambda=config.train_gail_lambda, eps=config.cn_eps, device=config.device,
                                    loss_type=config.cn_loss_type, manual_threshold=config.cn_manual_threshold,
-                                   weight_expert_loss=1, weight_nominal_loss=1)
+                                   weight_expert_loss=1, weight_nominal_loss=1,
+                                   velocity_input_scale=getattr(config, 'cn_velocity_input_scale', 1.0))
     # wandb.watch(constraint_net.network, log='all', log_freq=3000)
 
     if config.loading_constraint:
@@ -239,6 +251,11 @@ def dscl(config):
                              policy_excerpt_rollout_num=None, obs_failed=None, obs_rn=rn_nominal_obs, gmm_learned=None,
                              query_obs=None, show=config.show_figures,
                              grad_function=constraint_net.build_gamma_with_grad_for_ds)
+            if config.train_env_id == 'KukaCup1-v0' and 6 in config.cn_obs_select_dim:
+                plot_velocity_constraint(plot_cost_function, config.cn_manual_threshold, obs_dim, acs_dim,
+                                         os.path.join(cn_plot_dir, 'velocity_%d.png' % (itr + 1)),
+                                         f'DSCL iter {itr + 1}: velocity constraint', expert_obs, nominal_obs,
+                                         rn_nominal_obs, show=config.show_figures)
 
         # Periodically save model, evaluate model
         if itr % config.eval_every == 0 or itr == config.n_iters:
@@ -371,6 +388,10 @@ def main():
     parser.add_argument('--cost_info_str', '-cis', type=str, default='cost')
 
     # ====================== DS policy  ======================== #
+    parser.add_argument('--planner', type=str, default='traj_opt', choices=['traj_opt', 'ds'],
+                        help='KukaCup1 nominal trajectory generator: trajectory optimization or DS policy.')
+    parser.add_argument('--duration_slack', type=float, nargs=2, default=[1.0, 2.5], metavar=('LOW', 'HIGH'),
+                        help='traj_opt planner: plan duration = fastest feasible duration * U(LOW, HIGH); 1 1 = always fastest.')
     parser.add_argument('--ds_modulation_rho', '-dmr', type=float, default=0.2)
     parser.add_argument('--ds_modulation_with_refer_point', '-dmwr', action='store_true')
     parser.add_argument('--ds_reference_point', type=float, nargs='+', default=None,
@@ -425,6 +446,12 @@ def main():
     parser.add_argument('--kNN_k', '-kNNk', type=int, default=1)
     parser.add_argument('--kNN_thresh', '-kNNt', type=float, default=0.15)
     parser.add_argument('--kNN_normalize', '-kNNn', action='store_true')
+    parser.add_argument('--kNN_slower_feasible_radius', '-kNNsr', type=float, default=0.0,
+                        help='If > 0: a nominal point no faster than an expert within this position radius (m) is not reliably infeasible.')
+    parser.add_argument('--cn_velocity_input_scale', '-cvs', type=float, default=1.0,
+                        help='Fixed gain on the velocity inputs (obs 6:9) inside the constraint network; 1/step_size = 125 for KukaCup1.')
+    parser.add_argument('--kNN_velocity_scale', '-kNNvs', type=float, default=1.0,
+                        help='Multiplier on the velocity inputs (obs 6:9) in the kNN reliable-infeasible distance.')
     parser.add_argument('--kNN_metric', '-kNNm', type=str, default='euclidean') # choose from 'euclidean', 'manhattan', 'chebyshev', 'weighted_euclidean'
     parser.add_argument('--CPU_n_gmm_k', '-CPUngk', type=int, default=30)
     parser.add_argument('--CPU_ratio_thresh', '-CPUrt', type=float, default=0.8)
@@ -499,7 +526,7 @@ def main():
 
     # calling the icrl algorithm
 
-    dscl(config)
+    dscl(config, planner=getattr(config, 'planner', 'traj_opt'))
     end = time.time()
     print(utils.colorize('total elapsed time: %05.2f hours' % ((end - start) / 3600),
                          color='green', bold=True))

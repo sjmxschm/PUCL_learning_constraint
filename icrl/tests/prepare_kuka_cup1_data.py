@@ -58,11 +58,56 @@ def resample_by_time(positions, times,
 
     return sampled_positions, sampled_times, sample_reduction*ts
 
+def retime_by_obstacle_distance(positions, center, radius, profile_gain=1.0, v_min=0.02, v_max=0.19, a_max=1.5):
+    """New timestamps for the SAME path: slow near the obstacle, fast far from it.
+
+    The geometry is untouched. Each raw sample gets a target speed
+    ``clip(profile_gain * d, v_min, v_max)`` with ``d`` the planar distance to the cylinder border
+    (so the speed rises with distance, v ~ profile_gain * d, like the true limit). A forward and a
+    backward pass then cap the acceleration at ``a_max`` (m/s^2), starting from and ending at ``v_min``,
+    so the trajectory speeds up after the start instead of jumping. Time is integrated as
+    ``dt_i = ds_i / mean speed of the segment``.
+
+    Args:
+        positions: (N, 3) raw path in metres.
+        center, radius: cylinder centre (x, y) and radius in metres.
+        profile_gain: 1/s, slope of the speed profile against the distance to the border.
+        v_min, v_max: speed floor and ceiling in m/s (v_max stays below the action limit, about 0.19 m/s).
+        a_max: acceleration limit in m/s^2.
+
+    Returns:
+        (N,) timestamps in seconds, starting at 0 and non-decreasing.
+    """
+    positions = np.asarray(positions, dtype=float)
+    ds = np.linalg.norm(np.diff(positions, axis=0), axis=1)
+    distance = np.linalg.norm(positions[:, :2] - np.asarray(center, dtype=float), axis=1) - radius
+    speed = np.clip(profile_gain * distance, v_min, v_max)
+    speed[0] = min(speed[0], v_min)
+    for i in range(1, len(speed)):                      # forward: limited acceleration
+        speed[i] = min(speed[i], np.sqrt(speed[i - 1] ** 2 + 2 * a_max * ds[i - 1]))
+    speed[-1] = min(speed[-1], v_min)
+    for i in range(len(speed) - 2, -1, -1):             # backward: limited deceleration
+        speed[i] = min(speed[i], np.sqrt(speed[i + 1] ** 2 + 2 * a_max * ds[i]))
+    segment_speed = np.maximum((speed[:-1] + speed[1:]) / 2, 1e-6)
+    return np.r_[0.0, np.cumsum(ds / segment_speed)]
+
+
+def resample_to_grid(positions, times, sampling_time):
+    """Linear interpolation onto a uniform time grid anchored at the last sample (keeps the terminal point)."""
+    steps = int(np.floor((times[-1] - times[0]) / sampling_time))
+    grid = times[-1] - sampling_time * np.arange(steps, -1, -1)
+    sampled = np.column_stack([np.interp(grid, times, positions[:, k]) for k in range(positions.shape[1])])
+    return sampled, grid
+
+
 def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
-            time_rate: float = 0.05,):
+            time_rate: float = 0.05, retime: bool = False, profile_gain: float = 1.0,
+            v_min: float = 0.02, v_max: float = 0.19, a_max: float = 1.5):
     """
         position_only: specifies if only a positional constraint should be learned. If so,
             the trajectories are getting resampled by arc-length. If not, resampled by time.
+        retime: re-index the raw timestamps with ``retime_by_obstacle_distance`` (same path, speed grows with
+            the distance to the obstacle) before resampling onto the environment's time grid.
     """
     root = Path(dataset_dir) if dataset_dir else Path(__file__).resolve().parents[1] / "expert_data/KukaCup1"
     manifest = json.loads((root / "manifest.json").read_text())
@@ -79,8 +124,12 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
         "goal_tolerance": 0.01,
         "max_steps": 250,
         "time_rate": time_rate,
+        "velocity_gain": 1.0,
     }
     step_size = config["step_size"]
+    time_rate = config.get("time_rate", time_rate)
+    tasks_so_far = config.get("tasks") or [{}]
+    grid_time = tasks_so_far[0].get("sampling_time", 0.04)
     rollouts = root / "files/EXPERT/rollouts"
     rollouts.mkdir(parents=True, exist_ok=True)
     tasks = []
@@ -99,6 +148,13 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
         source_path_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
         if position_only:
             positions, times = resample_by_arc_length(positions, times, num_points)
+        elif retime:
+            times = retime_by_obstacle_distance(positions, config["obstacle_center"], config["obstacle_radius"],
+                                                profile_gain, v_min, v_max, a_max)
+            sampling_time = grid_time
+            positions, times = resample_to_grid(positions, times, sampling_time)
+            if len(positions) - 1 > config["max_steps"]:
+                raise ValueError(f"{demo}: {len(positions) - 1} transitions exceed max_steps")
         else:
             positions, times, sampling_time = resample_by_time(positions, times)
             if len(positions) - 1 > config["max_steps"]:
@@ -135,7 +191,10 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
             task["sampling_time"] = sampling_time
             rollout["rewards"] = np.array([-path_length -
                                            time_rate*(times[-1] - times[0])], dtype=np.float64)
-            rollout["downsampling"] = {"method": "time_based", "sampling_time": sampling_time},
+            rollout["downsampling"] = {"method": "time_based", "sampling_time": sampling_time}
+            if retime:
+                rollout["downsampling"] = {"method": "retimed_by_obstacle_distance", "sampling_time": sampling_time,
+                                           "profile_gain": profile_gain, "v_min": v_min, "v_max": v_max, "a_max": a_max}
 
         with (rollouts / task["rollout_file"]).open("wb") as stream:
             pickle.dump(rollout, stream, protocol=4)
@@ -145,13 +204,21 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
     manifest["conversion_status"] = "pucl_rollouts_ready"
     manifest["converted_rollouts"] = tasks
     manifest["downsampling"] = {"method": "uniform_arc_length", "num_positions_per_demo": num_points}
+    if retime:
+        manifest["downsampling"] = {"method": "retimed_by_obstacle_distance", "sampling_time": grid_time,
+                                    "profile_gain": profile_gain, "v_min": v_min, "v_max": v_max, "a_max": a_max,
+                                    "note": "synthetic timing on the true paths; true timing is in files/EXPERT_TIME"}
     manifest["total_training_observations"] = sum(task['num_transitions'] for task in tasks)
     manifest["notes"] = [
         "raw/ arrays are unchanged; converted rollouts use Cartesian position only.",
         "Goals are individual demonstration endpoints. Each converted trajectory stops at its first goal-tolerance hit.",
-        f"Converted trajectories are resampled to {num_points} positions by uniform arc length, including both endpoints.",
+        (f"Converted trajectories are re-timed (speed grows with the distance to the obstacle, profile_gain={profile_gain}, "
+         f"v in [{v_min}, {v_max}] m/s, a_max={a_max} m/s^2) and resampled every {grid_time} s, anchored at the terminal point. "
+         "The true timing is kept in files/EXPERT_TIME." if retime else
+         f"Converted trajectories are resampled to {num_points} positions by uniform arc length, including both endpoints."),
         "Actions are derived from displacement / step_size; no measured action or reward exists in the source.",
-        "Rewards are negative accumulated Cartesian path length in metres.",
+        ("Rewards are minus path length minus time_rate times duration." if (retime or not position_only) else
+         "Rewards are negative accumulated Cartesian path length in metres."),
         "The default evaluation cylinder is estimated; its geometry is not used as training labels.",
     ]
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -161,8 +228,14 @@ def prepare(dataset_dir=None, num_points=100, position_only: bool = False,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--points', type=int, default=100, help='number of positions including the terminal point')
+    parser.add_argument('--retime', action='store_true', help='re-index time: slow near the obstacle, fast far away')
+    parser.add_argument('--profile_gain', type=float, default=1.0, help='1/s, speed = gain * distance to the border')
+    parser.add_argument('--v_min', type=float, default=0.02)
+    parser.add_argument('--v_max', type=float, default=0.19)
+    parser.add_argument('--a_max', type=float, default=1.5, help='acceleration limit, m/s^2')
     args = parser.parse_args()
-    tasks = prepare(num_points=args.points)
+    tasks = prepare(num_points=args.points, retime=args.retime, profile_gain=args.profile_gain,
+                    v_min=args.v_min, v_max=args.v_max, a_max=args.a_max)
     print(f"Prepared {len(tasks)} KukaCup1 expert rollouts")
     for task in tasks:
         print(task["demo_id"], task["rollout_file"], task["num_transitions"], task["path_length"])

@@ -108,7 +108,7 @@ class KukaCup1(gym.Env):
         self.starting_point_candidates = None
         self.ending_point_candidates = None
         self.task_config_idx = 0
-        self.velocity_gain = 1 # 1/s - constant for gradient steepness #TODO: move to config later
+        self.velocity_gain = float(config.get("velocity_gain", 1.0)) # 1/s
         self.action_space = spaces.Box(-np.ones(3, dtype=np.float32), np.ones(3, dtype=np.float32))
         span = self.workspace_high - self.workspace_low
         self.observation_space = spaces.Box(

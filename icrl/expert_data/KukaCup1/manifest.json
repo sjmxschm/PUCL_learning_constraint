@@ -24,9 +24,9 @@
   "notes": [
     "raw/ arrays are unchanged; converted rollouts use Cartesian position only.",
     "Goals are individual demonstration endpoints. Each converted trajectory stops at its first goal-tolerance hit.",
-    "Converted trajectories are resampled to 100 positions by uniform arc length, including both endpoints.",
+    "Converted trajectories are re-timed (speed grows with the distance to the obstacle, profile_gain=1.0, v in [0.02, 0.19] m/s, a_max=1.5 m/s^2) and resampled every 0.04 s, anchored at the terminal point. The true timing is kept in files/EXPERT_TIME.",
     "Actions are derived from displacement / step_size; no measured action or reward exists in the source.",
-    "Rewards are negative accumulated Cartesian path length in metres.",
+    "Rewards are minus path length minus time_rate times duration.",
     "The default evaluation cylinder is estimated; its geometry is not used as training labels."
   ],
   "demonstrations": [
@@ -406,9 +406,9 @@
       "demo_id": "demo_04",
       "rollout_file": "0.pkl",
       "start": [
-        0.7106809293213289,
-        -0.21797621765717645,
-        0.26109930143577287
+        0.7101419027296698,
+        -0.21809444460942148,
+        0.26088364329845615
       ],
       "goal": [
         0.4504229675753951,
@@ -420,20 +420,20 @@
         0.0652278157870393,
         0.275073394241175
       ],
-      "num_transitions": 181,
-      "num_positions": 182,
+      "num_transitions": 125,
+      "num_positions": 126,
       "source_num_positions": 1450,
       "source_path_length": 0.47213591426019563,
-      "path_length": 0.4717903024126514,
+      "path_length": 0.46527738024359183,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_09",
       "rollout_file": "1.pkl",
       "start": [
-        0.48670710239532494,
-        -0.2539849201300002,
-        0.414624920846996
+        0.48697099792737747,
+        -0.2536084114840219,
+        0.41427031521802776
       ],
       "goal": [
         0.6847351158346948,
@@ -445,20 +445,20 @@
         0.05845306315740716,
         0.39498130061767184
       ],
-      "num_transitions": 172,
-      "num_positions": 173,
+      "num_transitions": 135,
+      "num_positions": 136,
       "source_num_positions": 1379,
       "source_path_length": 0.49006568462503786,
-      "path_length": 0.4898068342993597,
+      "path_length": 0.48906192108570884,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_10",
       "rollout_file": "2.pkl",
       "start": [
-        0.682076994475208,
-        0.05800049615391182,
-        0.38741078633033765
+        0.6819061571500693,
+        0.05774974146308196,
+        0.387213845724536
       ],
       "goal": [
         0.4947765814221981,
@@ -470,20 +470,20 @@
         -0.2364234965290169,
         0.3808537226171502
       ],
-      "num_transitions": 144,
-      "num_positions": 145,
+      "num_transitions": 141,
+      "num_positions": 142,
       "source_num_positions": 1156,
       "source_path_length": 0.43831869835020054,
-      "path_length": 0.43811888422522977,
+      "path_length": 0.4375192327915687,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_19",
       "rollout_file": "3.pkl",
       "start": [
-        0.595728388712075,
-        -0.26186303867086586,
-        0.25085219146784354
+        0.595986257922097,
+        -0.26178434658980354,
+        0.251031500871142
       ],
       "goal": [
         0.6169930411345617,
@@ -495,20 +495,20 @@
         0.1378643762941228,
         0.2713519273293566
       ],
-      "num_transitions": 215,
-      "num_positions": 216,
+      "num_transitions": 129,
+      "num_positions": 130,
       "source_num_positions": 1724,
       "source_path_length": 0.5265764454195887,
-      "path_length": 0.5262694678515367,
+      "path_length": 0.5247607523113001,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_20",
       "rollout_file": "4.pkl",
       "start": [
-        0.6202934156214369,
-        0.15326191452867158,
-        0.2743865646373261
+        0.6201686424988156,
+        0.15293020083565415,
+        0.27451797045662046
       ],
       "goal": [
         0.5896270461187659,
@@ -520,20 +520,20 @@
         -0.2640110324416942,
         0.2735672459683365
       ],
-      "num_transitions": 156,
-      "num_positions": 157,
+      "num_transitions": 136,
+      "num_positions": 137,
       "source_num_positions": 1256,
       "source_path_length": 0.5153377401964419,
-      "path_length": 0.514979993147637,
+      "path_length": 0.5144598689667188,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_23",
       "rollout_file": "5.pkl",
       "start": [
-        0.4383856012141035,
-        -0.22607401393769735,
-        0.4395032827111343
+        0.43910901179847867,
+        -0.22471268951129011,
+        0.4394865097371107
       ],
       "goal": [
         0.7204133413916723,
@@ -545,20 +545,20 @@
         0.0394364212994745,
         0.38394613852214865
       ],
-      "num_transitions": 221,
-      "num_positions": 222,
+      "num_transitions": 143,
+      "num_positions": 144,
       "source_num_positions": 1772,
       "source_path_length": 0.5492753727878561,
-      "path_length": 0.5488672780721442,
+      "path_length": 0.5446526263130106,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_24",
       "rollout_file": "6.pkl",
       "start": [
-        0.7217440612899066,
-        0.042170218393692005,
-        0.392099132938712
+        0.7217700008758527,
+        0.04200945345179655,
+        0.39205429568346395
       ],
       "goal": [
         0.47708268955724586,
@@ -570,20 +570,20 @@
         -0.2077793645109283,
         0.42887286019220694
       ],
-      "num_transitions": 154,
-      "num_positions": 155,
+      "num_transitions": 128,
+      "num_positions": 129,
       "source_num_positions": 1236,
       "source_path_length": 0.4798552917875233,
-      "path_length": 0.47949514822248185,
+      "path_length": 0.47726849524641224,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_25",
       "rollout_file": "7.pkl",
       "start": [
-        0.4792257567934228,
-        -0.21665872513465811,
-        0.4257675577640935
+        0.4792246655790346,
+        -0.21665977511743362,
+        0.425771142626373
       ],
       "goal": [
         0.7528083834935012,
@@ -595,20 +595,20 @@
         0.0010107458470949432,
         0.39761924300525275
       ],
-      "num_transitions": 208,
-      "num_positions": 209,
+      "num_transitions": 116,
+      "num_positions": 117,
       "source_num_positions": 1668,
       "source_path_length": 0.4275139672475575,
-      "path_length": 0.42717851029780474,
+      "path_length": 0.4217887987309088,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_27",
       "rollout_file": "8.pkl",
       "start": [
-        0.4849251498611906,
-        -0.0571987026351649,
-        0.394147130937755
+        0.48495244128843457,
+        -0.05758532438658096,
+        0.3940825199542794
       ],
       "goal": [
         0.7704382737210071,
@@ -620,20 +620,20 @@
         -0.08849276229917391,
         0.36366031243229063
       ],
-      "num_transitions": 109,
-      "num_positions": 110,
+      "num_transitions": 132,
+      "num_positions": 133,
       "source_num_positions": 878,
       "source_path_length": 0.403719779473211,
-      "path_length": 0.40342183131958215,
+      "path_length": 0.4025132829249493,
       "sampling_time": 0.04
     },
     {
       "demo_id": "demo_29",
       "rollout_file": "9.pkl",
       "start": [
-        0.7656801469374444,
-        -0.08599054066201688,
-        0.3562363155370192
+        0.7655770403192993,
+        -0.08598481276731473,
+        0.3561514684387414
       ],
       "goal": [
         0.4834496298501437,
@@ -645,17 +645,22 @@
         -0.05424563957228232,
         0.3578731801528904
       ],
-      "num_transitions": 172,
-      "num_positions": 173,
+      "num_transitions": 139,
+      "num_positions": 140,
       "source_num_positions": 1381,
       "source_path_length": 0.46190879688919845,
-      "path_length": 0.4611624740783945,
+      "path_length": 0.4585991641190117,
       "sampling_time": 0.04
     }
   ],
   "downsampling": {
-    "method": "uniform_arc_length",
-    "num_positions_per_demo": 100
+    "method": "retimed_by_obstacle_distance",
+    "sampling_time": 0.04,
+    "profile_gain": 1.0,
+    "v_min": 0.02,
+    "v_max": 0.19,
+    "a_max": 1.5,
+    "note": "synthetic timing on the true paths; true timing is in files/EXPERT_TIME"
   },
-  "total_training_observations": 1732
+  "total_training_observations": 1324
 }

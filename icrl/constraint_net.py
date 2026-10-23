@@ -52,7 +52,8 @@ class ConstraintNet(nn.Module):
             sbce_coe: float = 0.3,
             manual_threshold: float = 0.5,
             weight_expert_loss: float = 1.0,
-            weight_nominal_loss: float = 1.0
+            weight_nominal_loss: float = 1.0,
+            velocity_input_scale: float = 1.0
         ):
         super(ConstraintNet, self).__init__()
 
@@ -90,6 +91,10 @@ class ConstraintNet(nn.Module):
         self.manual_threshold = manual_threshold
         self.weight_expert_loss = weight_expert_loss
         self.weight_nominal_loss = weight_nominal_loss
+        # Fixed gain on the velocity inputs (observation entries 6:9, metres per step, about 0.005) so that
+        # the network sees them at O(1). It lives in forward(), so gradients with respect to the raw input
+        # (planner, plots) already include it. 1/step_size makes a full-size step equal to 1.
+        self.velocity_input_scale = float(velocity_input_scale)
         # self.weight_decay = 100e-4
         self._build()
 
@@ -109,6 +114,9 @@ class ConstraintNet(nn.Module):
         # print(self.select_dim)
 
     def _build(self) -> None:
+        scale = th.tensor([self.velocity_input_scale if 6 <= dim < 9 else 1.0 for dim in self.select_dim],
+                          dtype=th.float32, device=self.device)
+        self.register_buffer('input_scale', scale, persistent=False)
         # creating the network and adding sigmoid at the end
         self.network = nn.Sequential(*create_mlp(self.input_dims, 1, self.hidden_sizes, nn.LeakyReLU), nn.Sigmoid())
         self.network.to(self.device)
@@ -131,7 +139,7 @@ class ConstraintNet(nn.Module):
         #         inx[i, hot[i]] = 1
         #     return self.network(th.Tensor(inx))
         # else:
-        return self.network(x)
+        return self.network(x * self.input_scale)
 
     def local_curvature_loss(self, inputs, radius, generator=None, directions=None):
         """Isotropic local smoothness; uses predictions only, never true labels.
@@ -510,6 +518,8 @@ class ConstraintNet(nn.Module):
 
             elif pu_config.rn_decision_method == 'kNN': # kNN PU learning
 
+                expert_raw, nominal_raw = expert_data.copy(), nominal_data.copy()   # before any scaling, for the speed rule below
+
                 # Normalize the data if needed
                 if pu_config.kNN_normalize:
                     combined_data = np.vstack((expert_data, nominal_data))
@@ -537,6 +547,16 @@ class ConstraintNet(nn.Module):
                     #     axes[i].legend()
                     # plt.show()
 
+                # Fixed rescaling of the velocity inputs (observation entries 6:9, metres per step) inside the
+                # kNN distance only. It sets how large a speed difference at the same place must be to count as
+                # "far from the experts": speed difference [m/s] = kNN_thresh / (scale * dt). Not used for training.
+                velocity_scale = float(getattr(pu_config, 'kNN_velocity_scale', 1.0))
+                if velocity_scale != 1.0:
+                    if pu_config.kNN_normalize:
+                        raise ValueError('kNN_velocity_scale has no effect together with kNN_normalize (z-scoring undoes it)')
+                    scale = np.array([velocity_scale if 6 <= dim < 9 else 1.0 for dim in self.select_dim])
+                    expert_data, nominal_data = expert_data * scale, nominal_data * scale
+
                 # Create kNN model with specified metric
                 if pu_config.kNN_metric == 'euclidean':
                     knn = NearestNeighbors(n_neighbors=pu_config.kNN_k, p=2)
@@ -559,6 +579,24 @@ class ConstraintNet(nn.Module):
                 distances, indices = knn.kneighbors(nominal_data)
                 distances_sum = np.mean(distances, axis=1)
                 rn_nominal_index = distances_sum > pu_config.kNN_thresh
+
+                # Slower than an expert at the same place is feasible: such a point is not reliably infeasible.
+                # Only points with an expert within `radius` (position inputs) and no faster than it are released.
+                radius = float(getattr(pu_config, 'kNN_slower_feasible_radius', 0.0))
+                if radius > 0 and rn_nominal_index.any():
+                    pos = [k for k, dim in enumerate(self.select_dim) if dim < 3]
+                    vel = [k for k, dim in enumerate(self.select_dim) if 6 <= dim < 9]
+                    if not pos or not vel:
+                        raise ValueError('kNN_slower_feasible_radius needs position and velocity inputs (-cosd 0 1 2 6 7)')
+                    expert_speed = np.linalg.norm(expert_raw[:, vel], axis=1)
+                    nominal_speed = np.linalg.norm(nominal_raw[:, vel], axis=1)
+                    near = NearestNeighbors(radius=radius).fit(expert_raw[:, pos]).radius_neighbors(
+                        nominal_raw[:, pos], return_distance=False)
+                    dominated = np.array([len(idx) > 0 and nominal_speed[k] <= expert_speed[idx].max()
+                                          for k, idx in enumerate(near)])
+                    print('slower-than-expert rule releases %d of %d reliable infeasible points'
+                          % ((rn_nominal_index & dominated).sum(), rn_nominal_index.sum()))
+                    rn_nominal_index &= ~dominated
                 rn_before_aret = rn_nominal_index.copy()
 
                 # Add the most reliable infeasible data from each trajectory
@@ -812,7 +850,8 @@ class ConstraintNet(nn.Module):
                 action_low=self.action_low,
                 action_high=self.action_high,
                 device=self.device,
-                hidden_sizes=self.hidden_sizes
+                hidden_sizes=self.hidden_sizes,
+                velocity_input_scale=self.velocity_input_scale
         )
         th.save(state_dict, save_path)
 
@@ -896,7 +935,8 @@ class ConstraintNet(nn.Module):
                 obs_dim, acs_dim, hidden_sizes, None, None, optimizer_class=None,
                 is_discrete=is_discrete, obs_select_dim=obs_select_dim, acs_select_dim=acs_select_dim,
                 clip_obs=clip_obs, initial_obs_mean=obs_mean, initial_obs_var=obs_var, action_low=action_low, action_high=action_high,
-                device=device, manual_threshold=manual_threshold
+                device=device, manual_threshold=manual_threshold,
+                velocity_input_scale=state_dict.get('velocity_input_scale', 1.0)
         )
         constraint_net.network.load_state_dict(state_dict['cn_network'])
         return constraint_net
