@@ -53,7 +53,9 @@ class ConstraintNet(nn.Module):
             manual_threshold: float = 0.5,
             weight_expert_loss: float = 1.0,
             weight_nominal_loss: float = 1.0,
-            velocity_input_scale: float = 1.0
+            velocity_input_scale: float = 1.0,
+            sampling_time: float = 0.04,
+            obstacle_info: dict = None,
         ):
         super(ConstraintNet, self).__init__()
 
@@ -91,6 +93,8 @@ class ConstraintNet(nn.Module):
         self.manual_threshold = manual_threshold
         self.weight_expert_loss = weight_expert_loss
         self.weight_nominal_loss = weight_nominal_loss
+        self.sampling_time = sampling_time
+        self.obstacle_info = obstacle_info
         # Fixed gain on the velocity inputs (observation entries 6:9, metres per step, about 0.005) so that
         # the network sees them at O(1). It lives in forward(), so gradients with respect to the raw input
         # (planner, plots) already include it. 1/step_size makes a full-size step equal to 1.
@@ -114,7 +118,7 @@ class ConstraintNet(nn.Module):
         # print(self.select_dim)
 
     def _build(self) -> None:
-        scale = th.tensor([self.velocity_input_scale if 6 <= dim < 9 else 1.0 for dim in self.select_dim],
+        scale = th.tensor([self.velocity_input_scale if (6 <= dim < 9 or dim == 11) else 1.0 for dim in self.select_dim],
                           dtype=th.float32, device=self.device)
         self.register_buffer('input_scale', scale, persistent=False)
         # creating the network and adding sigmoid at the end
@@ -554,7 +558,7 @@ class ConstraintNet(nn.Module):
                 if velocity_scale != 1.0:
                     if pu_config.kNN_normalize:
                         raise ValueError('kNN_velocity_scale has no effect together with kNN_normalize (z-scoring undoes it)')
-                    scale = np.array([velocity_scale if 6 <= dim < 9 else 1.0 for dim in self.select_dim])
+                    scale = np.array([velocity_scale if (6 <= dim < 9 or dim == 11) else 1.0 for dim in self.select_dim])
                     expert_data, nominal_data = expert_data * scale, nominal_data * scale
 
                 # Create kNN model with specified metric
@@ -771,8 +775,28 @@ class ConstraintNet(nn.Module):
         concat = self.select_appropriate_dims(np.concatenate([obs, acs], axis=-1))
         return th.tensor(concat, dtype=th.float32).to(self.device)
 
-    def select_appropriate_dims(self, x: Union[np.ndarray, th.tensor]) -> Union[np.ndarray, th.tensor]:
-        return x[...,self.select_dim]
+    def select_appropriate_dims(self, x: Union[np.ndarray, th.Tensor]) -> Union[np.ndarray, th.Tensor]:
+        """Build the network input from the observation (+ action) columns listed in ``select_dim``.
+
+        Columns below ``obs_dim + acs_dim`` are taken as they are. Two derived features exist for KukaCup1:
+        11 = planar speed |obs[6:8]| / sampling_time (m/s), 12 = distance of the xy position to the
+        obstacle border |obs[:2] - center| - radius (m). Works on numpy arrays and torch tensors.
+        """
+        if 11 not in self.select_dim and 12 not in self.select_dim:
+            return x[..., self.select_dim]
+        is_torch = isinstance(x, th.Tensor)
+        norm = (lambda a: th.norm(a, dim=-1)) if is_torch else (lambda a: np.linalg.norm(a, axis=-1))
+        center = self.obstacle_info['center']
+        center = th.as_tensor(center, dtype=x.dtype, device=x.device) if is_torch else np.asarray(center)
+        features = []
+        for dim in self.select_dim:
+            if dim == 11:
+                features.append(norm(x[..., 6:8]) / self.sampling_time)
+            elif dim == 12:
+                features.append(norm(x[..., :2] - center) - self.obstacle_info['radius'])
+            else:
+                features.append(x[..., dim])
+        return th.stack(features, dim=-1) if is_torch else np.stack(features, axis=-1)
 
     def normalize_obs(self, obs: np.ndarray, mean: Optional[float] = None, var: Optional[float] = None,
                       clip_obs: Optional[float] = None) -> np.ndarray:
@@ -851,7 +875,9 @@ class ConstraintNet(nn.Module):
                 action_high=self.action_high,
                 device=self.device,
                 hidden_sizes=self.hidden_sizes,
-                velocity_input_scale=self.velocity_input_scale
+                velocity_input_scale=self.velocity_input_scale,
+                sampling_time=self.sampling_time,
+                obstacle_info=self.obstacle_info,
         )
         th.save(state_dict, save_path)
 
@@ -936,7 +962,9 @@ class ConstraintNet(nn.Module):
                 is_discrete=is_discrete, obs_select_dim=obs_select_dim, acs_select_dim=acs_select_dim,
                 clip_obs=clip_obs, initial_obs_mean=obs_mean, initial_obs_var=obs_var, action_low=action_low, action_high=action_high,
                 device=device, manual_threshold=manual_threshold,
-                velocity_input_scale=state_dict.get('velocity_input_scale', 1.0)
+                velocity_input_scale=state_dict.get('velocity_input_scale', 1.0),
+                sampling_time=state_dict.get('sampling_time', 0.04),
+                obstacle_info=state_dict.get('obstacle_info', None),
         )
         constraint_net.network.load_state_dict(state_dict['cn_network'])
         return constraint_net

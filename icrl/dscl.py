@@ -50,9 +50,10 @@ def dscl(config,
             raise AttributeError('Unknown planner {}'.format(planner))
         # Observation layout: 0:3 position, 3:6 goal - position, 6:9 last displacement.
         # Position-only: -cosd 0 1 2. Position + planar velocity: -cosd 0 1 2 6 7.
-        if list(config.cn_obs_select_dim) not in ([0, 1, 2], [0, 1, 2, 6, 7]) or list(config.cn_acs_select_dim) != [-1]:
+        if (list(config.cn_obs_select_dim) not in ([0, 1, 2], [0, 1, 2, 6, 7], [11, 12], [0, 1, 2, 11], [0, 1, 2, 11, 12])
+                or list(config.cn_acs_select_dim) != [-1]):
             raise ValueError('KukaCup1 learns position (-cosd 0 1 2) or position and velocity '
-                             '(-cosd 0 1 2 6 7); both need -casd -1.')
+                             '(-cosd 0 1 2 6 7), or speed/distance features 11 = speed, 12 = distance to obstacle (-cosd 11 12, 0 1 2 11, 0 1 2 11 12); all need -casd -1.')
         if not config.dont_normalize_obs or config.cn_normalize:
             raise ValueError('KukaCup1 DS policy uses physical coordinates: use -dno without -cn.')
         if config.eval_env_id != 'KukaCup1-v0':
@@ -127,6 +128,10 @@ def dscl(config,
         task_config = sampling_env.get_attr('task_config')[0]
         task_config['tasks'] = [{'start': row[:3].tolist(), 'goal': (row[:3] + row[3:6]).tolist()}
                                 for row in starting_points]
+
+        sampling_time = sampling_env.get_attr('dt')[0]
+        obstacle_info = {'radius': task_config['obstacle_radius'],
+                         'center': task_config['obstacle_center']}
         utils.save_dict_as_json(task_config, config.save_dir, 'task_config')
 
     # initializing the constraint net
@@ -144,7 +149,9 @@ def dscl(config,
                                    train_gail_lambda=config.train_gail_lambda, eps=config.cn_eps, device=config.device,
                                    loss_type=config.cn_loss_type, manual_threshold=config.cn_manual_threshold,
                                    weight_expert_loss=1, weight_nominal_loss=1,
-                                   velocity_input_scale=getattr(config, 'cn_velocity_input_scale', 1.0))
+                                   velocity_input_scale=getattr(config, 'cn_velocity_input_scale', 1.0),
+                                   sampling_time=sampling_time,
+                                   obstacle_info=obstacle_info,)
     # wandb.watch(constraint_net.network, log='all', log_freq=3000)
 
     if config.loading_constraint:
@@ -244,14 +251,15 @@ def dscl(config,
         # Save:
         # plotting
         if (itr % config.cn_plot_every == 0) or (itr == config.n_iters):
-            plot_constraints(plot_cost_function, config.cn_manual_threshold, None, None, config.eval_env_id,
-                             config.cn_obs_select_dim, obs_dim, acs_dim,
-                             os.path.join(cn_plot_dir, '%d.png' % (itr + 1)), f'DSCL iter {itr + 1}', expert_obs, None,
-                             expert_lengths, obs_nominal=nominal_obs, rew_nominal=None, len_nominal=nominal_len,
-                             policy_excerpt_rollout_num=None, obs_failed=None, obs_rn=rn_nominal_obs, gmm_learned=None,
-                             query_obs=None, show=config.show_figures,
-                             grad_function=constraint_net.build_gamma_with_grad_for_ds)
-            if config.train_env_id == 'KukaCup1-v0' and 6 in config.cn_obs_select_dim:
+            if 11 not in config.cn_obs_select_dim:   # [v, d] inputs are not x-y coordinates; velocity plot covers them
+                plot_constraints(plot_cost_function, config.cn_manual_threshold, None, None, config.eval_env_id,
+                                 config.cn_obs_select_dim, obs_dim, acs_dim,
+                                 os.path.join(cn_plot_dir, '%d.png' % (itr + 1)), f'DSCL iter {itr + 1}', expert_obs, None,
+                                 expert_lengths, obs_nominal=nominal_obs, rew_nominal=None, len_nominal=nominal_len,
+                                 policy_excerpt_rollout_num=None, obs_failed=None, obs_rn=rn_nominal_obs, gmm_learned=None,
+                                 query_obs=None, show=config.show_figures,
+                                 grad_function=constraint_net.build_gamma_with_grad_for_ds)
+            if config.train_env_id == 'KukaCup1-v0' and (6 in config.cn_obs_select_dim or 11 in config.cn_obs_select_dim):
                 plot_velocity_constraint(plot_cost_function, config.cn_manual_threshold, obs_dim, acs_dim,
                                          os.path.join(cn_plot_dir, 'velocity_%d.png' % (itr + 1)),
                                          f'DSCL iter {itr + 1}: velocity constraint', expert_obs, nominal_obs,

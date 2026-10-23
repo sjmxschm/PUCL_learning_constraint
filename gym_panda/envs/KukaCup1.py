@@ -270,7 +270,10 @@ class KukaCup1(gym.Env):
         timed_out = self.steps >= self.max_steps and not reached
         self.terminated = bool(reached or timed_out)
         self.time_cost += self.time_rate
-        reward = -distance - self.time_rate * self.dt - (self.failure_penalty if timed_out else 0.0) #TODO: add velocity reward
+        # reward = -distance - (self.failure_penalty if timed_out else 0.0) #TODO: add velocity reward
+        reward = -distance - self.time_rate * self.dt - (
+            self.failure_penalty if timed_out else 0.0)  # TODO: add velocity reward
+
         info = {"cost": cost, "is_success": bool(reached and self.cost_counter == 0),
                 "goal_reached": bool(reached), "path_length": self.path_length,
                 "dis_reward": -distance, "ctl_reward": 0.0,

@@ -1,0 +1,277 @@
+{
+  "coordinate_frame": "iiwa7_link_0",
+  "units": "metres",
+  "obstacle_center": [
+    0.6,
+    -0.08
+  ],
+  "obstacle_radius": 0.04,
+  "geometry_source": "Estimated evaluation cylinder, not measured geometry.",
+  "workspace_low": [
+    0.3,
+    -0.4,
+    0.1
+  ],
+  "workspace_high": [
+    0.9,
+    0.3,
+    0.6
+  ],
+  "step_size": 0.008,
+  "goal_tolerance": 0.01,
+  "max_steps": 250,
+  "time_rate": 0.05,
+  "velocity_gain": 1.0,
+  "tasks": [
+    {
+      "demo_id": "demo_04",
+      "rollout_file": "0.pkl",
+      "start": [
+        0.7101419027296698,
+        -0.21809444460942148,
+        0.26088364329845615
+      ],
+      "goal": [
+        0.4504229675753951,
+        0.06726244207249224,
+        0.2686092358347971
+      ],
+      "terminal_position": [
+        0.44313931367794235,
+        0.0652278157870393,
+        0.275073394241175
+      ],
+      "num_transitions": 125,
+      "num_positions": 126,
+      "source_num_positions": 1450,
+      "source_path_length": 0.47213591426019563,
+      "path_length": 0.46527738024359183,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_09",
+      "rollout_file": "1.pkl",
+      "start": [
+        0.48697099792737747,
+        -0.2536084114840219,
+        0.41427031521802776
+      ],
+      "goal": [
+        0.6847351158346948,
+        0.05805081380406393,
+        0.3909854568614648
+      ],
+      "terminal_position": [
+        0.6756530817186452,
+        0.05845306315740716,
+        0.39498130061767184
+      ],
+      "num_transitions": 135,
+      "num_positions": 136,
+      "source_num_positions": 1379,
+      "source_path_length": 0.49006568462503786,
+      "path_length": 0.48906192108570884,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_10",
+      "rollout_file": "2.pkl",
+      "start": [
+        0.6819061571500693,
+        0.05774974146308196,
+        0.387213845724536
+      ],
+      "goal": [
+        0.4947765814221981,
+        -0.24570455938624328,
+        0.38110182752929916
+      ],
+      "terminal_position": [
+        0.4984794421653132,
+        -0.2364234965290169,
+        0.3808537226171502
+      ],
+      "num_transitions": 141,
+      "num_positions": 142,
+      "source_num_positions": 1156,
+      "source_path_length": 0.43831869835020054,
+      "path_length": 0.4375192327915687,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_19",
+      "rollout_file": "3.pkl",
+      "start": [
+        0.595986257922097,
+        -0.26178434658980354,
+        0.251031500871142
+      ],
+      "goal": [
+        0.6169930411345617,
+        0.14732938051879818,
+        0.2742387091279677
+      ],
+      "terminal_position": [
+        0.6162461164536335,
+        0.1378643762941228,
+        0.2713519273293566
+      ],
+      "num_transitions": 129,
+      "num_positions": 130,
+      "source_num_positions": 1724,
+      "source_path_length": 0.5265764454195887,
+      "path_length": 0.5247607523113001,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_20",
+      "rollout_file": "4.pkl",
+      "start": [
+        0.6201686424988156,
+        0.15293020083565415,
+        0.27451797045662046
+      ],
+      "goal": [
+        0.5896270461187659,
+        -0.2714096019188934,
+        0.27401241933741305
+      ],
+      "terminal_position": [
+        0.5830837544081742,
+        -0.2640110324416942,
+        0.2735672459683365
+      ],
+      "num_transitions": 136,
+      "num_positions": 137,
+      "source_num_positions": 1256,
+      "source_path_length": 0.5153377401964419,
+      "path_length": 0.5144598689667188,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_23",
+      "rollout_file": "5.pkl",
+      "start": [
+        0.43910901179847867,
+        -0.22471268951129011,
+        0.4394865097371107
+      ],
+      "goal": [
+        0.7204133413916723,
+        0.04099257491221403,
+        0.3927268762012479
+      ],
+      "terminal_position": [
+        0.7247203626673742,
+        0.0394364212994745,
+        0.38394613852214865
+      ],
+      "num_transitions": 143,
+      "num_positions": 144,
+      "source_num_positions": 1772,
+      "source_path_length": 0.5492753727878561,
+      "path_length": 0.5446526263130106,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_24",
+      "rollout_file": "6.pkl",
+      "start": [
+        0.7217700008758527,
+        0.04200945345179655,
+        0.39205429568346395
+      ],
+      "goal": [
+        0.47708268955724586,
+        -0.21757077371311273,
+        0.4276464805284787
+      ],
+      "terminal_position": [
+        0.4779483239915138,
+        -0.2077793645109283,
+        0.42887286019220694
+      ],
+      "num_transitions": 128,
+      "num_positions": 129,
+      "source_num_positions": 1236,
+      "source_path_length": 0.4798552917875233,
+      "path_length": 0.47726849524641224,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_25",
+      "rollout_file": "7.pkl",
+      "start": [
+        0.4792246655790346,
+        -0.21665977511743362,
+        0.425771142626373
+      ],
+      "goal": [
+        0.7528083834935012,
+        0.008945775623628305,
+        0.3971493416973506
+      ],
+      "terminal_position": [
+        0.747101666824398,
+        0.0010107458470949432,
+        0.39761924300525275
+      ],
+      "num_transitions": 116,
+      "num_positions": 117,
+      "source_num_positions": 1668,
+      "source_path_length": 0.4275139672475575,
+      "path_length": 0.4217887987309088,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_27",
+      "rollout_file": "8.pkl",
+      "start": [
+        0.48495244128843457,
+        -0.05758532438658096,
+        0.3940825199542794
+      ],
+      "goal": [
+        0.7704382737210071,
+        -0.08566849251719294,
+        0.35793529629331233
+      ],
+      "terminal_position": [
+        0.7627893571077861,
+        -0.08849276229917391,
+        0.36366031243229063
+      ],
+      "num_transitions": 132,
+      "num_positions": 133,
+      "source_num_positions": 878,
+      "source_path_length": 0.403719779473211,
+      "path_length": 0.4025132829249493,
+      "sampling_time": 0.04
+    },
+    {
+      "demo_id": "demo_29",
+      "rollout_file": "9.pkl",
+      "start": [
+        0.7655770403192993,
+        -0.08598481276731473,
+        0.3561514684387414
+      ],
+      "goal": [
+        0.4834496298501437,
+        -0.04739443681248729,
+        0.3608260316283374
+      ],
+      "terminal_position": [
+        0.4768776740638149,
+        -0.05424563957228232,
+        0.3578731801528904
+      ],
+      "num_transitions": 139,
+      "num_positions": 140,
+      "source_num_positions": 1381,
+      "source_path_length": 0.46190879688919845,
+      "path_length": 0.4585991641190117,
+      "sampling_time": 0.04
+    }
+  ]
+}
