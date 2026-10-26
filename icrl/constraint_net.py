@@ -1030,7 +1030,8 @@ def plot_constraints(cost_function, manual_threshold, position_limit, env, env_i
                           obs_nominal, obs_expert, len_expert, obs_rn)
     elif env_id == 'KukaCup1-v0':
         plot_for_KukaCup1(cost_function, manual_threshold, obs_dim, acs_dim, save_name,
-                          fig_title, obs_nominal, obs_expert, obs_rn, keep_open=show)
+                          fig_title, obs_nominal, obs_expert, obs_rn, keep_open=show,
+                          obs_previous=kwargs.get('obs_previous'))
     elif 'ReachObs' in env_id or 'Reach2Region' in env_id or 'ReachConcave' in env_id:
         plot_for_ReachObs(cost_function, manual_threshold, obs_dim, acs_dim, select_dim, save_name, fig_title,
                           obs_nominal, obs_expert, len_expert, len_nominal, obs_rn, **kwargs)
@@ -1404,12 +1405,17 @@ def plot_for_PointObs(cost_function, manual_threshold, obs_dim, acs_dim, save_na
 
     fig.savefig(save_name, bbox_inches='tight', pad_inches=0.02,dpi=300)
 
-def plot_for_KukaCup1(cost_function, threshold, obs_dim, acs_dim, save_name, title, obs_n, obs_e, obs_rn, keep_open=False):
+def plot_for_KukaCup1(cost_function, threshold, obs_dim, acs_dim, save_name, title, obs_n, obs_e, obs_rn, keep_open=False,
+                      obs_previous=None):
+    """2x2 figure. Top: constraint cost in the xy plane (all velocity inputs set to zero, so it shows the
+    position part only) and the 3D decision boundary. Bottom: expert and policy points in xy colored by planar
+    speed |obs[6:8]| / dt (m/s, shared color scale). The policy panel shows the current iteration in color,
+    earlier iterations (obs_previous) in gray, and reliable infeasible points as faint open rings behind the dots."""
     env = gym.make('KukaCup1-v0')
     try:
         low, high = env.workspace_low, env.workspace_high
-        fig = plt.figure(figsize=(12, 5))
-        ax = fig.add_subplot(121)
+        fig = plt.figure(figsize=(14, 11))
+        ax = fig.add_subplot(221)
         X, Y = np.meshgrid(np.linspace(low[0], high[0], 160), np.linspace(low[1], high[1], 160))
         observations = np.zeros((X.size, obs_dim))
         observations[:, :3] = np.column_stack([X.ravel(), Y.ravel(), np.full(X.size, (low[2] + high[2]) / 2)])
@@ -1417,9 +1423,9 @@ def plot_for_KukaCup1(cost_function, threshold, obs_dim, acs_dim, save_name, tit
         image = ax.pcolormesh(X, Y, costs, vmin=0, vmax=1, shading='auto', cmap='RdYlGn_r')
         if costs.min() < threshold < costs.max():
             ax.contour(X, Y, costs, [threshold], colors='black')
-        fig.colorbar(image, ax=ax, label='constraint cost (z at workspace midpoint)')
+        fig.colorbar(image, ax=ax, label='constraint cost (speed 0, z at workspace midpoint)')
         ax.add_patch(plt.Circle(env.obstacle_center, env.obstacle_radius, fill=False, color='blue'))
-        ax3d = fig.add_subplot(122, projection='3d')
+        ax3d = fig.add_subplot(222, projection='3d')
         for values, color, label in [(obs_e, 'green', 'expert'), (obs_n, 'orange', 'policy'), (obs_rn, 'red', 'reliable infeasible')]:
             if values is not None and np.asarray(values).size:
                 values = np.asarray(values)
@@ -1451,13 +1457,39 @@ def plot_for_KukaCup1(cost_function, threshold, obs_dim, acs_dim, save_name, tit
                  xlabel='x (m)', ylabel='y (m)', zlabel='z (m)', title='learned constraint (red) and trajectories')
         ax3d.set_box_aspect(high - low)
         ax.legend()
+
+        # Speed-colored trajectories (m/s); one color scale for both panels.
+        def speed_of(values):
+            return np.linalg.norm(values[:, 6:8], axis=1) / env.dt
+        sets = [(obs_e, 'expert'), (obs_n, 'policy')]
+        sets = [(np.asarray(v), name) for v, name in sets if v is not None and np.asarray(v).size]
+        vmax = max([speed_of(v).max() for v, _ in sets] + [1e-6])
+        for k, (values, name) in enumerate(sets):
+            ax_speed = fig.add_subplot(223 + k)
+            ax_speed.add_patch(plt.Circle(env.obstacle_center, env.obstacle_radius, fill=False, color='blue'))
+            if name == 'policy':
+                if obs_previous is not None and np.asarray(obs_previous).size:
+                    prev = np.asarray(obs_previous)
+                    ax_speed.scatter(prev[:, 0], prev[:, 1], s=4, color='lightgray', zorder=1,
+                                     label='earlier iterations')
+                if obs_rn is not None and np.asarray(obs_rn).size:
+                    rn = np.asarray(obs_rn)
+                    ax_speed.scatter(rn[:, 0], rn[:, 1], s=60, facecolors='none', edgecolors='red', linewidths=0.6,
+                                     alpha=0.6, zorder=2, label='reliable infeasible')
+            points = ax_speed.scatter(values[:, 0], values[:, 1], c=speed_of(values), s=8, cmap='plasma',
+                                      vmin=0, vmax=vmax, zorder=3)
+            if name == 'policy' and ax_speed.get_legend_handles_labels()[0]:
+                ax_speed.legend(loc='upper right')
+            fig.colorbar(points, ax=ax_speed, label='planar speed (m/s)')
+            ax_speed.set(xlim=(low[0], high[0]), ylim=(low[1], high[1]), xlabel='x (m)', ylabel='y (m)',
+                         title=name + ' trajectories, colored by speed')
+            ax_speed.set_aspect('equal')
         fig.tight_layout()
-        fig.savefig(save_name, bbox_inches='tight')
+        fig.savefig(save_name, bbox_inches='tight', dpi=300)
         if not keep_open:
             plt.close(fig)
     finally:
         env.close()
-
 
 def plot_for_ReachObs(cost_function, manual_threshold, obs_dim, acs_dim, cn_obs_select_dim, save_name, fig_title, obs_n, obs_e, len_e, len_n, obs_rn, gmm=None, **kwargs
                    ):

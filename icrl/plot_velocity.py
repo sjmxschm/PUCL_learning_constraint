@@ -36,7 +36,7 @@ def plot_velocity_constraint(cost_function, threshold, obs_dim, acs_dim, save_na
     A good constraint has this limit above the green expert dots (experts are feasible) and below the red
     reliable-infeasible dots, and it should rise with distance like the true limit (black line).
 
-    RIGHT, "is each point judged correctly?": every point coloured by the network's own cost at its real
+    RIGHT, "is each point judged correctly?": every point colored by the network's own cost at its real
     observation (green feasible, red infeasible; circled = disagrees with its training label). Points above the
     black true-limit line should be red, points below it green. The two counts in the box measure that.
 
@@ -52,7 +52,7 @@ def plot_velocity_constraint(cost_function, threshold, obs_dim, acs_dim, save_na
         env.close()
     speed_max = step * np.sqrt(2) / dt            # largest planar speed one action can produce
 
-    groups = []   # label, colour, marker, size, observations, wrongly classified if cost above (True) / below (False) / never (None)
+    groups = []   # label, color, marker, size, observations, wrongly classified if cost above (True) / below (False) / never (None)
     for values, label, color, marker, size, wrong_if_infeasible in [
             (obs_expert, 'expert', 'green', 'o', 6, True), (obs_nominal, 'policy', 'orange', '.', 6, None),
             (obs_rn, 'reliable infeasible', 'red', '^', 10, False)]:
@@ -121,7 +121,7 @@ def plot_velocity_constraint(cost_function, threshold, obs_dim, acs_dim, save_na
     if image is not None:
         fig.colorbar(image, ax=right, label='network cost at the point (threshold %.2f); circled = disagrees with label' % threshold)
     fig.suptitle(title)
-    fig.savefig(save_name, bbox_inches='tight')
+    fig.savefig(save_name, bbox_inches='tight', dpi=300)
     if show:
         plt.show()
     plt.close(fig)

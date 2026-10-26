@@ -251,14 +251,14 @@ def dscl(config,
         # Save:
         # plotting
         if (itr % config.cn_plot_every == 0) or (itr == config.n_iters):
-            if 11 not in config.cn_obs_select_dim:   # [v, d] inputs are not x-y coordinates; velocity plot covers them
-                plot_constraints(plot_cost_function, config.cn_manual_threshold, None, None, config.eval_env_id,
-                                 config.cn_obs_select_dim, obs_dim, acs_dim,
-                                 os.path.join(cn_plot_dir, '%d.png' % (itr + 1)), f'DSCL iter {itr + 1}', expert_obs, None,
-                                 expert_lengths, obs_nominal=nominal_obs, rew_nominal=None, len_nominal=nominal_len,
-                                 policy_excerpt_rollout_num=None, obs_failed=None, obs_rn=rn_nominal_obs, gmm_learned=None,
-                                 query_obs=None, show=config.show_figures,
-                                 grad_function=constraint_net.build_gamma_with_grad_for_ds)
+            plot_constraints(plot_cost_function, config.cn_manual_threshold, None, None, config.eval_env_id,
+                             config.cn_obs_select_dim, obs_dim, acs_dim,
+                             os.path.join(cn_plot_dir, '%d.png' % (itr + 1)), f'DSCL iter {itr + 1}', expert_obs, None,
+                             expert_lengths, obs_nominal=nominal_obs, rew_nominal=None, len_nominal=nominal_len,
+                             policy_excerpt_rollout_num=None, obs_failed=None, obs_rn=rn_nominal_obs, gmm_learned=None,
+                             query_obs=None, show=config.show_figures,
+                             grad_function=constraint_net.build_gamma_with_grad_for_ds,
+                             obs_previous=nominal_obs_memory[:len(nominal_obs_memory) - len(nominal_obs)])
             if config.train_env_id == 'KukaCup1-v0' and (6 in config.cn_obs_select_dim or 11 in config.cn_obs_select_dim):
                 plot_velocity_constraint(plot_cost_function, config.cn_manual_threshold, obs_dim, acs_dim,
                                          os.path.join(cn_plot_dir, 'velocity_%d.png' % (itr + 1)),

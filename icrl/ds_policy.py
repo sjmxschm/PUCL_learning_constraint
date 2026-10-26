@@ -9,8 +9,8 @@ from icrl.utils import make_eval_env, del_and_make, save_dict_as_pkl, sample_fro
 from icrl.constraint_net import plot_constraints, ConstraintNet
 from icrl.utils import load_expert_data, sample_trajectories_for_reach_env
 import matplotlib
-
-matplotlib.use('TKAgg')
+# No backend is forced at import time (TkAgg crashes on headless/ssh hosts). The plotting functions
+# choose TkAgg / Agg themselves depending on --show_figures.
 
 class DS_Policy():
     def __init__(self, obs_dim, nominal_ds, gmm_confidence=5, stable_modulation_basis=False):
