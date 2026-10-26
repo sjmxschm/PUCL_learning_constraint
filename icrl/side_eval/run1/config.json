@@ -1,0 +1,102 @@
+{
+  "rule": {
+    "center": [
+      0.6,
+      -0.08
+    ],
+    "radius": 0.04,
+    "margin": 0.02,
+    "gain": 1.5,
+    "v_cap": 0.15
+  },
+  "inflate_m": 0.056,
+  "task_speed": 0.084,
+  "box_low": [
+    0.3791089975833893,
+    -0.32208579540252685,
+    0.20103148818016053
+  ],
+  "box_high": [
+    0.8255770182609559,
+    0.21293020009994507,
+    0.4894865036010742
+  ],
+  "speed_max_sampled": 0.195,
+  "hidden_sizes": [
+    64,
+    64,
+    64
+  ],
+  "seed": 0,
+  "files": {
+    "position_speed": {
+      "path": "/home/max/Programming/pucl/icrl/side_eval/run1/side_eval_position_speed.pt",
+      "select_dim": [
+        0,
+        1,
+        2,
+        11
+      ]
+    },
+    "position": {
+      "path": "/home/max/Programming/pucl/icrl/side_eval/run1/side_eval_position.pt",
+      "select_dim": [
+        0,
+        1,
+        2
+      ]
+    },
+    "position_inflated": {
+      "path": "/home/max/Programming/pucl/icrl/side_eval/run1/side_eval_position_inflated.pt",
+      "select_dim": [
+        0,
+        1,
+        2
+      ]
+    }
+  },
+  "metrics": {
+    "position_speed": {
+      "all": {
+        "n": 20000,
+        "accuracy": 0.99455,
+        "false_feasible": 0.005512878445549029,
+        "false_infeasible": 0.005372132064913262
+      },
+      "near_boundary_1.5cm_or_0.02ms": {
+        "n": 10856,
+        "accuracy": 0.9899594694178334,
+        "false_feasible": 0.007573876334740502,
+        "false_infeasible": 0.017130620985010708
+      }
+    },
+    "position": {
+      "all": {
+        "n": 20000,
+        "accuracy": 0.99785,
+        "false_feasible": 0.006310096153846154,
+        "false_infeasible": 0.00131957773512476
+      },
+      "near_boundary_1.5cm_or_0.02ms": {
+        "n": 5287,
+        "accuracy": 0.9918668432003026,
+        "false_feasible": 0.00822239624119029,
+        "false_infeasible": 0.00804976216611782
+      }
+    },
+    "position_inflated": {
+      "all": {
+        "n": 20000,
+        "accuracy": 0.999,
+        "false_feasible": 0.0008767123287671233,
+        "false_infeasible": 0.001103448275862069
+      },
+      "near_boundary_1.5cm_or_0.02ms": {
+        "n": 1980,
+        "accuracy": 0.98989898989899,
+        "false_feasible": 0.008385744234800839,
+        "false_infeasible": 0.011695906432748537
+      }
+    }
+  }
+}
